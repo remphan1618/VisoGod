@@ -1,0 +1,45 @@
+# This docker-compose file defines how to run the VisoMaster container,
+# primarily for local testing or reference. Vast.ai uses its own interface
+# or API calls which mirror these settings.
+# See documentation for mapping these settings to the Vast.ai UI/API.
+version: '3.8'
+
+services:
+  visomaster:
+    # Replace with your actual DockerHub image path and tag
+    image: your_dockerhub_username/visomaster:latest
+    container_name: visomaster_container
+    restart: always # Automatically restart the container if it stops
+    ports:
+      # Map host VNC port to container VNC port
+      # On Vast.ai, you configure this mapping in the instance setup.
+      - "5901:5901"
+      # Add other port mappings if needed (e.g., for web UIs or APIs)
+      # - "8888:8888" # Example: Jupyter Lab port
+    volumes:
+      # Map Vast.ai's persistent /workspace to the container's /workspace
+      # This is CRUCIAL for saving outputs persistently.
+      # On Vast.ai, this mapping is typically pre-configured or set during launch.
+      - /workspace:/workspace
+      # Example: Map specific output subdirectories if needed, although using /workspace is standard
+      # - /workspace/Images:/app/VisoMaster/Images
+      # - /workspace/Video:/app/VisoMaster/Video
+      # - /workspace/output:/app/VisoMaster/output
+    environment:
+      # Set any required environment variables for VisoMaster or VNC/GUI
+      # Example:
+      # - NVIDIA_VISIBLE_DEVICES=all # Often handled by deploy.resources below
+      # - RESOLUTION=1280x1024 # Example for VNC
+      # See documentation regarding Vast.ai specific env vars like PORTAL_CONFIG or OPEN_BUTTON_TOKEN for alternatives.
+      - TZ=UTC # Set timezone if needed
+    deploy:
+      # This section enables GPU access using the Docker Compose standard.
+      # Vast.ai handles GPU allocation through its own template/API settings.
+      # See documentation for Vast.ai GPU selection.
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+              # Request all available GPUs. Vast.ai UI controls the actual number.
+              count: all

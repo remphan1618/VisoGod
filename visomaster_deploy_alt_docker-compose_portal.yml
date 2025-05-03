@@ -1,0 +1,34 @@
+# Alternative docker-compose file for the Vast.ai Instance Portal setup.
+# Sets necessary environment variables and maps the portal port.
+# See documentation for Pros/Cons and Vast.ai specifics.
+version: '3.8'
+
+services:
+  visomaster:
+    image: your_dockerhub_username/visomaster:latest # Use image built with Portal support
+    container_name: visomaster_portal_container
+    restart: always
+    ports:
+      # Map the external PORTAL port (defined by Vast.ai, e.g., 1111) to Caddy's internal port (e.g., 11111)
+      # This mapping is configured in the Vast.ai instance launch settings.
+      # Example placeholder:
+      - "1111:11111" # Host Port (Set on Vast.ai) : Container Port (Caddy listens here)
+      # Note: Direct VNC port (5901) is usually NOT exposed directly when using Portal
+    volumes:
+      - /workspace:/workspace
+    environment:
+      # CRITICAL: Define the PORTAL_CONFIG environment variable.
+      # The format is specific to Vast.ai templates. Example structure:
+      # '{"version":2,"port":11111,"services":[{"name":"VNC","port":5901,"proto":"http","rewrite":true,"auth":true},{"name":"AppLogs","uri":"/logs/visomaster_app.log","auth":true},{"name":"VNCLogs","uri":"/logs/x11vnc.log","auth":true}]}'
+      # This MUST be set correctly in the Vast.ai instance launch Environment Variables.
+      - PORTAL_CONFIG=${PORTAL_CONFIG_JSON} # User provides this via Vast.ai UI/API
+      # OPEN_BUTTON_TOKEN is usually set automatically by Vast.ai based on user auth
+      # - OPEN_BUTTON_TOKEN=${VAST_AI_TOKEN} # Placeholder
+      - TZ=UTC
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+              count: all

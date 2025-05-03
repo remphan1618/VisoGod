@@ -1,0 +1,101 @@
+# Base image with CUDA 12.4.1 support suitable for Conda installation
+# Using nvidia/cuda directly often works well, but ensure compatibility with Conda's CUDA packages.
+# Alternatively, start from a base Ubuntu and install Miniconda + CUDA toolkit via Conda.
+# Let's use a continuumio base for Miniconda convenience.
+FROM continuumio/miniconda3:latest AS builder
+
+# --- Environment Setup ---
+ARG PYTHON_VERSION=3.10.13
+ARG CONDA_ENV_NAME=visomaster
+ARG CUDA_VERSION_CONDA=12.4.1
+ARG APP_DIR=/app
+ARG VISOMASTER_CODE_DIR=${APP_DIR}/VisoMaster
+ARG VISOMASTER_DEPS_DIR=${APP_DIR}/dependencies
+ARG VISOMASTER_MODELS_DIR=${APP_DIR}/models
+
+WORKDIR ${APP_DIR}
+
+# Install essential tools, supervisor, and GUI components
+# Combine RUN instructions to reduce layers
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    supervisor \
+    xvfb \
+    fluxbox \
+    x11vnc \
+    wget \
+    # Clean up apt cache
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# --- Conda Environment Creation and Activation ---
+# See documentation for detailed explanation and alternatives.
+# Create Conda environment with specified Python version
+RUN conda create -y -n ${CONDA_ENV_NAME} python=${PYTHON_VERSION} && \
+    # Clean up conda cache
+    conda clean -a -y
+
+# Set SHELL to use bash and activate conda env for subsequent RUN commands
+# See https://stackoverflow.com/questions/55509832/activate-conda-environment-in-docker
+SHELL ["conda", "run", "-n", "${CONDA_ENV_NAME}", "/bin/bash", "-c"]
+
+# Verify conda environment activation (optional check)
+RUN echo "Conda environment $CONDA_DEFAULT_ENV activated." && \
+    python --version
+
+# --- Install CUDA Toolkit and cuDNN via Conda ---
+# Using specific Nvidia channel and version as required by VisoMaster
+# See documentation for the role of these libraries.
+RUN conda install -y -c nvidia/label/cuda-${CUDA_VERSION_CONDA} cuda-runtime && \
+    conda install -y -c conda-forge cudnn && \
+    # Clean up conda cache again after major installs
+    conda clean -a -y
+
+# --- Install Python Dependencies ---
+# Copy requirements first to leverage Docker layer caching
+COPY requirements.txt .
+# Install using pip within the conda environment, specifying required extra index URLs
+# See documentation regarding requirements.txt and index URLs.
+RUN pip install --no-cache-dir -r requirements.txt \
+    --extra-index-url https://download.pytorch.org/whl/cu124 \
+    --extra-index-url https://pypi.nvidia.com
+
+# --- Copy Application Code, Dependencies, and Internal Guide ---
+# Create directories
+RUN mkdir -p ${VISOMASTER_CODE_DIR} ${VISOMASTER_DEPS_DIR} ${VISOMASTER_MODELS_DIR}
+
+# Copy user-provided dependencies (assets)
+# See documentation: User MUST populate a 'dependencies' folder locally before building.
+COPY dependencies/ ${VISOMASTER_DEPS_DIR}/
+
+# Copy VisoMaster application code (adjust source path if needed, e.g., VisoMaster/)
+COPY . ${VISOMASTER_CODE_DIR}/
+
+# Copy the internal validation/troubleshooting notebook into the application directory
+# See documentation for the purpose and usage of this notebook.
+COPY visomaster_deploy_Install_Guide.ipynb ${VISOMASTER_CODE_DIR}/
+
+# Set the working directory to the application code directory
+WORKDIR ${VISOMASTER_CODE_DIR}
+
+# --- Download Models ---
+# Run the application's model download script. Ensure it downloads to an expected path (e.g., VISOMASTER_MODELS_DIR).
+# Adjust the path to the script and target directory if necessary.
+# See documentation for details on this script.
+RUN echo "Running model download script..." && \
+    python download_models.py --output_dir ${VISOMASTER_MODELS_DIR} && \
+    echo "Model download script finished."
+
+# --- Runtime Configuration ---
+# Expose VNC port
+EXPOSE 5901
+
+# Copy supervisor configuration
+COPY visomaster_deploy_supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Start supervisord
+# Use exec form to make supervisord the main process (PID 1)
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+
+# Ensure conda environment is activated for supervisord processes (handled in supervisord.conf)
+# Reset SHELL to default
+SHELL ["/bin/bash", "-c"]

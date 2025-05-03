@@ -1,0 +1,61 @@
+# Alternative GitHub Actions workflow triggered on release creation.
+# Includes a basic container test step after build.
+# See documentation for Pros/Cons (release-based workflow, basic testing).
+name: Build and Push VisoMaster Docker Image on Release
+
+on:
+  release:
+    types: [published] # Trigger when a release is published
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  build-push-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract Release Tag
+        id: get_tag
+        # Use the release tag name for the Docker image tag
+        run: echo ::set-output name=tag::${GITHUB_REF#refs/tags/}
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./visomaster_deploy_Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/visomaster:${{ steps.get_tag.outputs.tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/visomaster:latest # Also update latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Basic GPU Availability Test
+        # Runs a simple command inside the newly built container to check GPU access.
+        # Requires Docker runtime with GPU support on the GitHub Actions runner (may need self-hosted runner for guaranteed GPU).
+        # This is a basic check; more comprehensive tests might be needed.
+        run: |
+          echo "Testing GPU availability in container..."
+          docker run --rm --gpus all ${{ secrets.DOCKERHUB_USERNAME }}/visomaster:${{ steps.get_tag.outputs.tag }} \
+            conda run -n visomaster python -c "import torch; print(f'Torch CUDA available: {torch.cuda.is_available()}'); import os; print(f'NVIDIA_VISIBLE_DEVICES: {os.environ.get(\"NVIDIA_VISIBLE_DEVICES\")}')"
+        # Continue even if this step fails, as GPU runners aren't guaranteed on GitHub hosted.
+        continue-on-error: true
